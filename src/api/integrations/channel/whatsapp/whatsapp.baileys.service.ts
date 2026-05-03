@@ -1961,6 +1961,23 @@ export class BaileysStartupService extends ChannelStartupService {
                 return;
               }
 
+              // [terrano-patch] Resolver @lid al JID con número de teléfono real,
+              // para que el webhook pueda asociar el evento al cliente correcto.
+              // Si el mapping aún no está cacheado, se envía el payload tal cual.
+              try {
+                if (payload.id?.endsWith?.('@lid') && this.client.signalRepository?.lidMapping?.getPNForLID) {
+                  const pnJid = await this.client.signalRepository.lidMapping.getPNForLID(payload.id as string);
+                  if (pnJid) {
+                    (payload as any).remoteJid = pnJid;
+                    if (payload.presences && payload.presences[payload.id as string]) {
+                      payload.presences[pnJid] = payload.presences[payload.id as string];
+                    }
+                  }
+                }
+              } catch (err) {
+                this.logger.warn(`presence LID resolve failed for ${payload.id}: ${(err as any)?.message}`);
+              }
+
               this.sendDataWebhook(Events.PRESENCE_UPDATE, payload);
             }
 
