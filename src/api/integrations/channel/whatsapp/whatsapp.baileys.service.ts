@@ -1175,6 +1175,19 @@ export class BaileysStartupService extends ChannelStartupService {
             continue;
           }
 
+          // [terrano-patch] Suscribirse a presence (typing/composing) del remitente
+          // para que el webhook PRESENCE_UPDATE reciba eventos de este chat.
+          // Solo para mensajes entrantes (no fromMe) y no para grupos.
+          if (
+            !received.key.fromMe &&
+            received.key.remoteJid &&
+            !received.key.remoteJid.includes('@g.us')
+          ) {
+            this.client.presenceSubscribe(received.key.remoteJid).catch((err) => {
+              this.logger.warn(`presenceSubscribe failed for ${received.key.remoteJid}: ${err?.message}`);
+            });
+          }
+
           const existingChat = await this.prismaRepository.chat.findFirst({
             where: { instanceId: this.instanceId, remoteJid: received.key.remoteJid },
             select: { id: true, name: true },
