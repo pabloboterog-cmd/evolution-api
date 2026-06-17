@@ -720,6 +720,35 @@ export class BaileysStartupService extends ChannelStartupService {
     return this.client;
   }
 
+  // [terrano-patch] Consulta el estado del reachout timelock (error 463) y el
+  // cupo de chats nuevos directamente del servidor de WhatsApp via Baileys rc13.
+  // Permite saber si la cuenta esta restringida y HASTA CUANDO sin adivinar.
+  public async fetchReachoutTimelockInfo(): Promise<any> {
+    const out: any = {};
+    try {
+      if (typeof (this.client as any)?.fetchAccountReachoutTimelock === 'function') {
+        const tl = await (this.client as any).fetchAccountReachoutTimelock();
+        out.reachoutTimelock = {
+          isActive: tl?.isActive ?? null,
+          timeEnforcementEnds: tl?.timeEnforcementEnds ?? null,
+          enforcementType: tl?.enforcementType ?? null,
+        };
+      } else {
+        out.reachoutTimelock = { error: 'fetchAccountReachoutTimelock no disponible en esta version de baileys' };
+      }
+    } catch (e) {
+      out.reachoutTimelock = { error: (e as any)?.message || String(e) };
+    }
+    try {
+      if (typeof (this.client as any)?.fetchNewChatMessageCap === 'function') {
+        out.newChatMessageCap = await (this.client as any).fetchNewChatMessageCap();
+      }
+    } catch (e) {
+      out.newChatMessageCap = { error: (e as any)?.message || String(e) };
+    }
+    return out;
+  }
+
   public async connectToWhatsapp(number?: string): Promise<WASocket> {
     try {
       this.loadChatwoot();

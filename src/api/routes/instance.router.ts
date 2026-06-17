@@ -54,6 +54,17 @@ export class InstanceRouter extends RouterBroker {
 
         return res.status(HttpStatus.OK).json(response);
       })
+      // [terrano-patch] Consultar reachout timelock (error 463) de la instancia
+      .get(this.routerPath('reachoutTimelock'), ...guards, async (req, res) => {
+        const response = await this.dataValidate<InstanceDto>({
+          request: req,
+          schema: null,
+          ClassRef: InstanceDto,
+          execute: (instance) => instanceController.reachoutTimelock(instance),
+        });
+
+        return res.status(HttpStatus.OK).json(response);
+      })
       .get(this.routerPath('fetchInstances', false), ...guards, async (req, res) => {
         const key = req.get('apikey');
 

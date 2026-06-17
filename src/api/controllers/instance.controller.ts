@@ -399,6 +399,25 @@ export class InstanceController {
     };
   }
 
+  // [terrano-patch] Consulta el reachout timelock (error 463) de la instancia.
+  public async reachoutTimelock({ instanceName }: InstanceDto) {
+    const instance: any = this.waMonitor.waInstances[instanceName];
+    if (!instance) {
+      return { instance: { instanceName, error: 'instancia no encontrada' } };
+    }
+    let info: any = { error: 'metodo no disponible en este canal' };
+    if (typeof instance.fetchReachoutTimelockInfo === 'function') {
+      info = await instance.fetchReachoutTimelockInfo();
+    }
+    return {
+      instance: {
+        instanceName,
+        state: instance?.connectionStatus?.state,
+        ...info,
+      },
+    };
+  }
+
   public async fetchInstances({ instanceName, instanceId, number }: InstanceDto, key: string) {
     const env = this.configService.get<Auth>('AUTHENTICATION').API_KEY;
 
