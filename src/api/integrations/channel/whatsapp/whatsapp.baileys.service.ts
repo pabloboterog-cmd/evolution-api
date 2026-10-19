@@ -4749,6 +4749,50 @@ export class BaileysStartupService extends ChannelStartupService {
     }
   }
 
+  // [milano-patch] La equivalencia LID <-> numero de varios contactos a la vez,
+  // para que el panel junte solo lo que llego partido (POST
+  // /instance/lidMapping/{instancia}, {"jids": [...]}). Devuelve los pares
+  // que se conocen: [{lid, pn}], los dos sin numero de dispositivo.
+  //   - de un numero: getLIDsForPNs (lo guardado, o se lo pregunta al
+  //     servidor de WhatsApp por USync y lo guarda);
+  //   - de un LID: getPNsForLIDs (solo lo guardado).
+  // Lo que no se sabe no sale. Hasta 100 por pedido y 10 s.
+  public async resolverLidMapping(jids: any[]): Promise<{ lid: string; pn: string }[]> {
+    const mapa: any = (this.client as any)?.signalRepository?.lidMapping;
+    if (!mapa) return [];
+    const limpios: string[] = [
+      ...new Set(
+        (Array.isArray(jids) ? jids : [])
+          .filter((j) => typeof j === 'string' && j.includes('@'))
+          .map((j) => jidNormalizedUser(j))
+          .filter((j) => !!j),
+      ),
+    ].slice(0, 100);
+    const lids = limpios.filter((j) => j.endsWith('@lid'));
+    const pns = limpios.filter((j) => j.endsWith('@s.whatsapp.net'));
+    const conTope = (p: Promise<any>) =>
+      Promise.race([p, new Promise<null>((listo) => setTimeout(() => listo(null), 10000))]);
+    const pares: { lid: string; pn: string }[] = [];
+    const agregar = (lista: any) => {
+      for (const par of Array.isArray(lista) ? lista : []) {
+        const lid = par?.lid ? jidNormalizedUser(par.lid) : '';
+        const pn = par?.pn ? jidNormalizedUser(par.pn) : '';
+        if (lid.endsWith('@lid') && pn.endsWith('@s.whatsapp.net')) pares.push({ lid, pn });
+      }
+    };
+    try {
+      if (pns.length) agregar(await conTope(mapa.getLIDsForPNs(pns)));
+    } catch (error) {
+      this.logger.warn(`[milano-patch] getLIDsForPNs fallo: ${error?.message}`);
+    }
+    try {
+      if (lids.length) agregar(await conTope(mapa.getPNsForLIDs(lids)));
+    } catch (error) {
+      this.logger.warn(`[milano-patch] getPNsForLIDs fallo: ${error?.message}`);
+    }
+    return pares;
+  }
+
   private prepareMessage(message: proto.IWebMessageInfo): any {
     const contentType = getContentType(message.message);
     const contentMsg = message?.message[contentType] as any;

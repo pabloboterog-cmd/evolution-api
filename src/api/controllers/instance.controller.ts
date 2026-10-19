@@ -418,6 +418,18 @@ export class InstanceController {
     };
   }
 
+  // [milano-patch] Equivalencia LID <-> numero (ver resolverLidMapping).
+  public async lidMapping({ instanceName }: InstanceDto, data: any) {
+    const instance: any = this.waMonitor.waInstances[instanceName];
+    if (!instance) {
+      return { error: true, message: 'instancia no encontrada' };
+    }
+    if (typeof instance.resolverLidMapping !== 'function') {
+      return { error: true, message: 'metodo no disponible en este canal' };
+    }
+    return { pares: await instance.resolverLidMapping(data?.jids) };
+  }
+
   public async fetchInstances({ instanceName, instanceId, number }: InstanceDto, key: string) {
     const env = this.configService.get<Auth>('AUTHENTICATION').API_KEY;
 

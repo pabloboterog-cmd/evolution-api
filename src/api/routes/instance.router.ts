@@ -65,6 +65,17 @@ export class InstanceRouter extends RouterBroker {
 
         return res.status(HttpStatus.OK).json(response);
       })
+      // [milano-patch] Equivalencia LID <-> numero, {"jids": [...]} (rama milano)
+      .post(this.routerPath('lidMapping'), ...guards, async (req, res) => {
+        const response = await this.dataValidate<any>({
+          request: req,
+          schema: null,
+          ClassRef: Object,
+          execute: (instance, data) => instanceController.lidMapping(instance, data),
+        });
+
+        return res.status(HttpStatus.OK).json(response);
+      })
       .get(this.routerPath('fetchInstances', false), ...guards, async (req, res) => {
         const key = req.get('apikey');
 
