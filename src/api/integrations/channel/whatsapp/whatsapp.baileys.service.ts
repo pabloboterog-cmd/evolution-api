@@ -1517,7 +1517,13 @@ export class BaileysStartupService extends ChannelStartupService {
           this.logger.verbose(messageRaw);
 
           sendTelemetry(`received.message.${messageRaw.messageType ?? 'unknown'}`);
+          // [milano-patch] Completar el numero o el LID que WhatsApp no mando.
+          await this.completarJidAlterno(messageRaw.key);
           if (messageRaw.key.remoteJid?.includes('@lid') && messageRaw.key.remoteJidAlt) {
+            // [milano-patch] Con el cambio de abajo el LID se perdia (remoteJid y
+            // remoteJidAlt quedaban los dos con el numero): se deja aparte, en
+            // remoteJidLid, para que el panel sepa que es el mismo cliente.
+            messageRaw.key.remoteJidLid = messageRaw.key.remoteJid;
             messageRaw.key.remoteJid = messageRaw.key.remoteJidAlt;
           }
           console.log(messageRaw);
@@ -4706,6 +4712,41 @@ export class BaileysStartupService extends ChannelStartupService {
     }
 
     return obj;
+  }
+
+  // [milano-patch] (rama milano del fork, 19-oct-2026; el bot de Terrano usa
+  // main y NO tiene esto). WhatsApp a veces manda el mensaje de un cliente
+  // solo con su LID (sin numero), y el celular de Nania le contesta por su
+  // NUMERO: el panel recibia dos chats que no podia saber que eran la misma
+  // persona. Aca se completa key.remoteJidAlt con lo que falta:
+  //   - LID sin numero: el numero que ya conoce Baileys (getPNForLID, solo
+  //     lo guardado; no le pregunta al servidor).
+  //   - numero sin LID: el LID que da getLIDForPN (lo guardado, o se lo
+  //     pregunta al servidor de WhatsApp por USync y lo guarda).
+  // Con los dos datos en el mismo mensaje, el panel junta los chats solo.
+  // Nunca rompe el mensaje: si falla o tarda mas de 4 s, sigue como venia.
+  private async completarJidAlterno(key: any): Promise<void> {
+    try {
+      const rj: string = key?.remoteJid || '';
+      if (!rj || key.remoteJidAlt) return;
+      if (rj.includes('@g.us') || rj.includes('@broadcast') || rj.includes('@newsletter')) return;
+      const mapa: any = (this.client as any)?.signalRepository?.lidMapping;
+      if (!mapa) return;
+      const conTope = (p: Promise<string | null>) =>
+        Promise.race([p, new Promise<null>((listo) => setTimeout(() => listo(null), 4000))]);
+      let alterno: string | null = null;
+      if (rj.endsWith('@lid')) {
+        alterno = await conTope(mapa.getPNForLID(rj));
+      } else if (rj.endsWith('@s.whatsapp.net')) {
+        alterno = await conTope(mapa.getLIDForPN(rj));
+      }
+      if (alterno) {
+        key.remoteJidAlt = jidNormalizedUser(alterno);
+        this.logger.info(`[milano-patch] remoteJidAlt completado para un mensaje de ${rj.endsWith('@lid') ? 'LID' : 'numero'}`);
+      }
+    } catch (error) {
+      this.logger.warn(`[milano-patch] no se pudo completar remoteJidAlt: ${error?.message}`);
+    }
   }
 
   private prepareMessage(message: proto.IWebMessageInfo): any {
