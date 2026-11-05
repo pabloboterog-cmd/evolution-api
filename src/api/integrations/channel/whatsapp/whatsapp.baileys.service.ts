@@ -2101,11 +2101,18 @@ export class BaileysStartupService extends ChannelStartupService {
     );
   }
 
+  // [terrano-patch] (05-nov-2026) Con tope de 3 s, igual que la rama milano
+  // (ca54843). Sin tope, Baileys espera 60 s cuando WhatsApp no contesta, y
+  // messages.upsert (y contacts.update) esperan la foto antes de seguir. Como
+  // los eventos van en una sola fila (eventProcessingQueue), tambien el
+  // presence.update del debounce, el bot recibia los mensajes de un cliente de
+  // a uno por minuto (medido del 26-oct al 05-nov: 24 de 94 con mas de 1 min,
+  // el peor 6 min). El bot no usa la foto: sin ella no se pierde nada.
   public async profilePicture(number: string) {
     const jid = createJid(number);
 
     try {
-      const profilePictureUrl = await this.client.profilePictureUrl(jid, 'image');
+      const profilePictureUrl = await this.client.profilePictureUrl(jid, 'image', 3000);
 
       return { wuid: jid, profilePictureUrl };
     } catch {
