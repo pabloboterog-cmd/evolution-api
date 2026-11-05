@@ -2107,11 +2107,18 @@ export class BaileysStartupService extends ChannelStartupService {
     );
   }
 
+  // [milano-patch] (05-nov-2026) Con tope de 3 s. Sin tope, Baileys espera 60 s
+  // cuando WhatsApp no contesta, y eso pasaba con CADA mensaje: messages.upsert
+  // (y contacts.update) esperan la foto antes de seguir, y los eventos van en
+  // una sola fila (eventProcessingQueue). Resultado: un mensaje por minuto, y
+  // con varios seguidos el ultimo llegaba al panel 4-5 min tarde (el 4-nov la
+  // respuesta automatica le contesto a un cliente encima de Nania por eso). El
+  // panel de Milano no usa la foto: sin ella no se pierde nada.
   public async profilePicture(number: string) {
     const jid = createJid(number);
 
     try {
-      const profilePictureUrl = await this.client.profilePictureUrl(jid, 'image');
+      const profilePictureUrl = await this.client.profilePictureUrl(jid, 'image', 3000);
 
       return { wuid: jid, profilePictureUrl };
     } catch {
