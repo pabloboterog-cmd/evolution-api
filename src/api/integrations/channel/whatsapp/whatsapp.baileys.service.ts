@@ -696,6 +696,7 @@ export class BaileysStartupService extends ChannelStartupService {
     this.endSession = false;
 
     this.client = makeWASocket(socketConfig);
+    this.pedirPendientesHastaElFinal(this.client);
 
     if (this.localSettings.wavoipToken && this.localSettings.wavoipToken.length > 0) {
       useVoiceCallsBaileys(this.localSettings.wavoipToken, this.client, this.connectionStatus.state as any, true);
@@ -4719,6 +4720,82 @@ export class BaileysStartupService extends ChannelStartupService {
     }
 
     return obj;
+  }
+
+  // [personal-patch] (24-nov-2026) Traer TODO lo que llego con la instancia apagada.
+  // Baileys (7.0.0-rc13, y sigue igual en master) pide UN lote de 100 avisos
+  // pendientes (`offline_batch`, al llegar `offline_preview`) y nunca pide el
+  // siguiente. Con mas de 100 pendientes, WhatsApp retiene todo lo demas --lo
+  // nuevo en vivo tambien-- hasta la proxima conexion, que vuelve a traer
+  // solo 100. Medido en la instancia personal (prendida a demanda) el
+  // 24-nov-2026: tras 3,5 dias apagada, cada conexion trajo unas horas del
+  // 20-nov y se quedo quieta. Es el arreglo de WhiskeySockets/Baileys#2926
+  // (abierto), hecho desde afuera sobre el socket: pedir otro lote cada 100
+  // avisos con el atributo `offline` y cada 10 s, hasta que llega el nodo
+  // `offline` (el fin). Pedir de mas no hace dano: el servidor manda lo que hay.
+  private pedirPendientesHastaElFinal(sock: any): void {
+    const LOTE = 100;
+    const CADA_MS = 10_000;
+    let enEsteLote = 0;
+    let lotes = 1; // el primero lo pide Baileys
+    let terminado = false;
+    let cerrado = false;
+    let reloj: ReturnType<typeof setInterval> | undefined;
+
+    const parar = () => {
+      if (reloj) clearInterval(reloj);
+      reloj = undefined;
+    };
+
+    const pedirOtro = async () => {
+      if (terminado || cerrado || !sock?.ws?.isOpen) return;
+      enEsteLote = 0;
+      lotes += 1;
+      try {
+        await sock.sendNode({
+          tag: 'ib',
+          attrs: {},
+          content: [{ tag: 'offline_batch', attrs: { count: String(LOTE) } }],
+        });
+      } catch (error) {
+        this.logger.warn(`[personal-patch] no se pudo pedir otro lote de pendientes: ${error?.message ?? error}`);
+      }
+    };
+
+    try {
+      sock.ws.on('frame', (frame: any) => {
+        if (terminado || cerrado || frame instanceof Uint8Array || frame?.attrs?.offline === undefined) return;
+        enEsteLote += 1;
+        if (enEsteLote >= LOTE) void pedirOtro();
+      });
+
+      sock.ws.on('CB:ib,,offline_preview', (node: any) => {
+        const vista = (node?.content || []).find((c: any) => c?.tag === 'offline_preview');
+        this.logger.info(`[personal-patch] pendientes al conectar: ${vista?.attrs?.count ?? '?'}`);
+        if (terminado || cerrado) return;
+        parar();
+        reloj = setInterval(() => {
+          if (terminado || cerrado) return parar();
+          void pedirOtro();
+        }, CADA_MS);
+      });
+
+      sock.ws.on('CB:ib,,offline', (node: any) => {
+        terminado = true;
+        parar();
+        const fin = (node?.content || []).find((c: any) => c?.tag === 'offline');
+        this.logger.info(`[personal-patch] pendientes al dia: ${fin?.attrs?.count ?? '?'} avisos en ${lotes} lote(s)`);
+      });
+
+      sock.ev.on('connection.update', (u: any) => {
+        if (u?.connection === 'close') {
+          cerrado = true;
+          parar();
+        }
+      });
+    } catch (error) {
+      this.logger.warn(`[personal-patch] no se pudo vigilar los pendientes: ${error?.message ?? error}`);
+    }
   }
 
   // [milano-patch] (rama milano del fork, 19-oct-2026; el bot de Terrano usa
